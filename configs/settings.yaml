@@ -1,10 +1,18 @@
-﻿run_mode: pseudo_realtime
+﻿project:
+  name: olist-fmcg
+  dataset: olist
 
-raw_incoming_dir: data/raw/olist/incoming
-raw_archive_dir: data/raw/olist/archive
-raw_reference_dir: data/raw/olist/reference
-checkpoint_dir: data/checkpoints
+paths:
+  raw_incoming_dir: data/raw/olist/incoming
+  raw_archive_dir: data/raw/olist/archive
+  checkpoint_dir: data/checkpoints
+  bronze_dir: data/bronze/olist_parquet
 
-bronze_dir: data/bronze/olist_parquet
-silver_dir: data/silver/olist_parquet
-gold_dir: data/gold/olist_parquet
+ingest:
+  batch_id_format: "batch_%Y%m%d_%H%M"
+  require_marker_file: false
+  marker_glob: "_BATCH_*.ready"
+
+runtime:
+  timezone: "Asia/Jakarta"
+  log_level: "INFO"

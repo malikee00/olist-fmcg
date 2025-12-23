@@ -1,0 +1,4 @@
+﻿pyspark
+pyarrow
+pandas
+pyyaml

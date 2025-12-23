@@ -1,0 +1,10 @@
+﻿run_mode: pseudo_realtime
+
+raw_incoming_dir: data/raw/olist/incoming
+raw_archive_dir: data/raw/olist/archive
+raw_reference_dir: data/raw/olist/reference
+checkpoint_dir: data/checkpoints
+
+bronze_dir: data/bronze/olist_parquet
+silver_dir: data/silver/olist_parquet
+gold_dir: data/gold/olist_parquet

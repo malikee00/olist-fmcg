@@ -1,0 +1,13 @@
+﻿source_dir: data/raw/olist/incoming
+bronze_dir: data/bronze/olist_parquet
+tables:
+  - name: olist_orders_dataset
+    file: olist_orders_dataset.csv
+  - name: olist_order_items_dataset
+    file: olist_order_items_dataset.csv
+  - name: olist_products_dataset
+    file: olist_products_dataset.csv
+  - name: olist_customers_dataset
+    file: olist_customers_dataset.csv
+  - name: olist_order_payments_dataset
+    file: olist_order_payments_dataset.csv

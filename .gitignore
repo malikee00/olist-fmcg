@@ -1,0 +1,13 @@
+﻿.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Data policy: do not commit raw/full data
+data/raw/**
+!data/raw/olist/README.md
+
+# Airflow artifacts (if you run airflow locally)
+airflow/logs/
+airflow/airflow.db

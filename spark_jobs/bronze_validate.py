@@ -1,0 +1,2 @@
+﻿# TODO: validate bronze outputs
+

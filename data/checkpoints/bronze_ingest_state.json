@@ -1,1 +1,10 @@
-﻿{ "last_batch_id": null, "processed_files": [] }
+{
+  "last_batch_id": "batch_20251223_1745",
+  "processed_markers": [
+    "_BATCH_batch_20251223_1745.ready"
+  ],
+  "processed_batches": [
+    "batch_20251223_1745"
+  ],
+  "updated_at": "2025-12-25T00:32:46"
+}

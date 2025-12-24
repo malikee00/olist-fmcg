@@ -101,6 +101,10 @@ def read_csv(spark: SparkSession, path: Path) -> DataFrame:
     )
 
 
+def partition_dir_for_batch(table_dir: Path, batch_id: str) -> Path:
+    return table_dir / f"batch_id={batch_id}"
+
+
 def write_bronze_table(
     df: DataFrame,
     out_root: Path,
@@ -109,11 +113,24 @@ def write_bronze_table(
     partition_by: str,
     write_format: str,
     write_mode: str,
-) -> Tuple[str, int]:
+    on_existing: str,  
+) -> Tuple[str, int, bool]:
     """
-    Returns (output_dir, row_count)
+    Returns (output_dir, row_count, skipped)
     """
     table_dir = out_root / table_name
+
+    # Idempotency guard: if partition exists, refuse to append duplicate
+    if partition_by == "batch_id":
+        part_dir = partition_dir_for_batch(table_dir, batch_id)
+        if part_dir.exists():
+            if on_existing == "skip":
+                return (str(table_dir), 0, True)
+            raise RuntimeError(
+                f"Duplicate guard: partition already exists for table={table_name}, batch_id={batch_id}. "
+                "Refusing to write duplicate data."
+            )
+
     df_out = df.withColumn("batch_id", F.lit(batch_id))
 
     row_count = df_out.count()
@@ -131,7 +148,7 @@ def write_bronze_table(
     else:
         raise RuntimeError(f"Unsupported write_format: {write_format}")
 
-    return (str(table_dir), row_count)
+    return (str(table_dir), row_count, False)
 
 
 def write_metadata(meta_dir: Path, batch_id: str, payload: Dict[str, Any]) -> Path:
@@ -140,12 +157,15 @@ def write_metadata(meta_dir: Path, batch_id: str, payload: Dict[str, Any]) -> Pa
     out_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return out_path
 
+
+# -----------------------------
+# Step 2.7 — Checkpointing Helpers
 # -----------------------------
 def default_state() -> Dict[str, Any]:
     return {
         "last_batch_id": None,
-        "processed_markers": [],   
-        "processed_batches": [],   
+        "processed_markers": [],
+        "processed_batches": [],
         "updated_at": None,
     }
 
@@ -174,13 +194,8 @@ def load_state(state_path: Path) -> Dict[str, Any]:
 
 
 def save_state_atomic(state_path: Path, state: Dict[str, Any]) -> None:
-    """
-    Atomic write:
-      write to tmp -> replace
-    """
     state_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = state_path.with_suffix(".tmp")
-
     tmp_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     os.replace(str(tmp_path), str(state_path))
 
@@ -208,12 +223,10 @@ def mark_processed(
     def uniq_keep_last(items: List[str]) -> List[str]:
         seen = set()
         out: List[str] = []
-        # keep order, then trim later
         for x in items:
             if x not in seen:
                 seen.add(x)
                 out.append(x)
-        # keep last N
         if len(out) > keep_last:
             out = out[-keep_last:]
         return out
@@ -231,19 +244,15 @@ def mark_processed(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--settings", required=True, help="Path to configs/settings.yaml")
-    parser.add_argument(
-        "--bronze-tables", required=True, help="Path to configs/bronze_tables.yaml"
-    )
-    parser.add_argument(
-        "--batch-id",
-        default=None,
-        help="Optional: force a specific batch_id (must match marker naming).",
-    )
+    parser.add_argument("--bronze-tables", required=True, help="Path to configs/bronze_tables.yaml")
+    parser.add_argument("--batch-id", default=None, help="Optional: force a specific batch_id (must match marker naming).")
     parser.add_argument("--no-meta", action="store_true", help="Disable writing _meta JSON")
+    parser.add_argument("--force", action="store_true", help="Force ingest even if checkpoint says processed (use carefully).")
     parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Force ingest even if checkpoint says processed (use carefully).",
+        "--on-existing",
+        choices=["skip", "fail"],
+        default="skip",
+        help="Idempotency behavior if partition batch_id already exists. Default: skip.",
     )
     args = parser.parse_args()
 
@@ -261,7 +270,6 @@ def main() -> int:
     spark.sparkContext.setLogLevel("WARN")
 
     try:
-        # 1) Detect batch
         marker = select_latest_batch_marker(incoming_dir)
         if marker is None:
             print("[NO-OP] No batch marker found in incoming/. Nothing to ingest.")
@@ -278,19 +286,19 @@ def main() -> int:
         print(f"[INFO] Batch ID       : {batch_id}")
         print(f"[INFO] State path     : {state_path}")
 
-        # 2.7) Checkpoint skip logic
+        # Checkpoint skip logic
         state = load_state(state_path)
         if (not args.force) and is_processed(state, batch_id=batch_id, marker_name=marker.name):
             print("[SKIP] Batch already processed according to checkpoint state.")
             print("       Use --force to re-run intentionally.")
             return 0
 
-        # 2) Validate required files for atomic batch
         required_files = [t.file for t in bronze_cfg.tables]
         ensure_required_files_present(incoming_dir, required_files)
 
-        # 3-5) Read, normalize, cast, write
         table_results: List[Dict[str, Any]] = []
+        any_written = False
+
         for t in bronze_cfg.tables:
             src_path = incoming_dir / t.file
             print(f"[INFO] Reading: {src_path.name}")
@@ -299,7 +307,7 @@ def main() -> int:
             df = normalize_columns(df)
             df = cast_columns(df, t.timestamp_cols, t.numeric_cols)
 
-            out_dir, row_count = write_bronze_table(
+            out_dir, row_count, skipped = write_bronze_table(
                 df=df,
                 out_root=bronze_root,
                 table_name=t.name,
@@ -307,8 +315,23 @@ def main() -> int:
                 partition_by=bronze_cfg.partition_by,
                 write_format=bronze_cfg.write_format,
                 write_mode=bronze_cfg.write_mode,
+                on_existing=args.on_existing,
             )
 
+            if skipped:
+                print(f"[SKIP] {t.name}: partition batch_id={batch_id} already exists (idempotent).")
+                table_results.append(
+                    {
+                        "table": t.name,
+                        "source_file": t.file,
+                        "rows": 0,
+                        "output_dir": out_dir,
+                        "skipped": True,
+                    }
+                )
+                continue
+
+            any_written = True
             print(f"[OK] Wrote {t.name} rows={row_count} -> {out_dir}")
             table_results.append(
                 {
@@ -316,10 +339,15 @@ def main() -> int:
                     "source_file": t.file,
                     "rows": row_count,
                     "output_dir": out_dir,
+                    "skipped": False,
                 }
             )
 
-        # 6) Metadata 
+        # If everything got skipped due to existing partitions, treat as NO-OP success
+        if not any_written:
+            print("[NO-OP] All tables already have this batch partition. Nothing written.")
+            return 0
+
         if not args.no_meta:
             payload = {
                 "batch_id": batch_id,

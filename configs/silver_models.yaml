@@ -1,1 +1,80 @@
-﻿# TODO: silver mapping (inputs from bronze -> outputs to silver)
+﻿version: 1
+
+global:
+  bronze_root: "data/bronze/olist_parquet"
+  silver_root: "data/silver/olist_parquet"
+  batch_col: "batch_id"
+
+tables:
+  orders:
+    bronze_name: "olist_orders_dataset"
+    required_cols: ["order_id", "customer_id", "order_status", "order_purchase_timestamp"]
+
+  order_items:
+    bronze_name: "olist_order_items_dataset"
+    required_cols: ["order_id", "order_item_id", "product_id", "price", "freight_value"]
+
+  products:
+    bronze_name: "olist_products_dataset"
+    required_cols: ["product_id", "product_category_name"]
+
+  customers:
+    bronze_name: "olist_customers_dataset"
+    dim_key: "customer_id"
+    required_cols: ["customer_id", "customer_unique_id", "customer_city", "customer_state"]
+
+silver:
+  dims:
+    dim_customers:
+      path: "dim_customers"
+      key: ["customer_id"]
+      columns:
+        - customer_id
+        - customer_unique_id
+        - customer_city
+        - customer_state
+      strategy: "upsert_union_dedup_overwrite"
+
+    dim_products:
+      path: "dim_products"
+      key: ["product_id"]
+      columns:
+        - product_id
+        - product_category_name
+      strategy: "upsert_union_dedup_overwrite"
+
+  facts:
+    fact_orders:
+      path: "fact_orders"
+      key: ["order_id"]
+      partition_by: ["batch_id"]
+      strategy: "partition_overwrite_by_batch"
+      columns:
+        - order_id
+        - customer_id
+        - order_status
+        - order_purchase_timestamp
+        - order_approved_at
+        - order_delivered_carrier_date
+        - order_delivered_customer_date
+        - order_estimated_delivery_date
+        - batch_id
+
+    fact_order_items:
+      path: "fact_order_items"
+      key: ["order_id", "order_item_id"]
+      partition_by: ["batch_id"]
+      strategy: "partition_overwrite_by_batch"
+      columns:
+        - order_id
+        - order_item_id
+        - product_id
+        - seller_id
+        - shipping_limit_date
+        - price
+        - freight_value
+        - product_category_name
+        - batch_id
+
+quality:
+  min_category_coverage: 0.70

@@ -1,80 +1,177 @@
 ﻿version: 1
 
 global:
-  bronze_root: "data/bronze/olist_parquet"
-  silver_root: "data/silver/olist_parquet"
-  batch_col: "batch_id"
+  input_dir: "data/bronze/olist_parquet"
+  output_dir: "data/silver/olist_parquet"
+  batch_key: "batch_id"
 
-tables:
+  write_mode:
+    facts: "append"    
+    dims: "merge"     
+
+sources:
   orders:
-    bronze_name: "olist_orders_dataset"
-    required_cols: ["order_id", "customer_id", "order_status", "order_purchase_timestamp"]
+    table: "olist_orders_dataset"
+    required_cols:
+      - order_id
+      - customer_id
+      - order_status
+      - order_purchase_timestamp
+      - batch_id
 
   order_items:
-    bronze_name: "olist_order_items_dataset"
-    required_cols: ["order_id", "order_item_id", "product_id", "price", "freight_value"]
+    table: "olist_order_items_dataset"
+    required_cols:
+      - order_id
+      - order_item_id
+      - product_id
+      - price
+      - freight_value
+      - batch_id
 
   products:
-    bronze_name: "olist_products_dataset"
-    required_cols: ["product_id", "product_category_name"]
+    table: "olist_products_dataset"
+    required_cols:
+      - product_id
+      - product_category_name
+      - batch_id
 
   customers:
-    bronze_name: "olist_customers_dataset"
-    dim_key: "customer_id"
-    required_cols: ["customer_id", "customer_unique_id", "customer_city", "customer_state"]
+    table: "olist_customers_dataset"
+    required_cols:
+      - customer_id
+      - customer_unique_id
+      - customer_city
+      - customer_state
+      - batch_id
 
-silver:
-  dims:
-    dim_customers:
-      path: "dim_customers"
-      key: ["customer_id"]
-      columns:
-        - customer_id
-        - customer_unique_id
-        - customer_city
-        - customer_state
-      strategy: "upsert_union_dedup_overwrite"
+  payments:
+    table: "olist_order_payments_dataset"
+    required_cols:
+      - order_id
+      - payment_sequential
+      - payment_type
+      - payment_value
+      - batch_id
 
-    dim_products:
-      path: "dim_products"
-      key: ["product_id"]
-      columns:
-        - product_id
-        - product_category_name
-      strategy: "upsert_union_dedup_overwrite"
+outputs:
+  dim_customers:
+    name: "dim_customers"
+    type: "dim"
+    path: "dim_customers"
+    sources: ["customers"]
+    primary_key: ["customer_id"]
+    partition_by: []
+    select_columns:
+      - customer_id
+      - customer_unique_id
+      - customer_city
+      - customer_state
+    transform:
+      standardize:
+        lowercase_trim_cols: ["customer_city", "customer_state"]
 
-  facts:
-    fact_orders:
-      path: "fact_orders"
-      key: ["order_id"]
-      partition_by: ["batch_id"]
-      strategy: "partition_overwrite_by_batch"
-      columns:
-        - order_id
-        - customer_id
-        - order_status
+  dim_products:
+    name: "dim_products"
+    type: "dim"
+    path: "dim_products"
+    sources: ["products"]
+    primary_key: ["product_id"]
+    partition_by: []
+    select_columns:
+      - product_id
+      - product_category_name
+    transform:
+      fill_unknown_cols: ["product_category_name"]
+
+  fact_orders:
+    name: "fact_orders"
+    type: "fact"
+    path: "fact_orders"
+    sources: ["orders", "customers", "payments"]
+    primary_key: ["order_id"]
+    partition_by: ["batch_id"]
+    joins:
+      - left:
+          source: "orders"
+          keys: ["customer_id"]
+        right:
+          source: "customers"
+          keys: ["customer_id"]
+        select_from_right:
+          - customer_city
+          - customer_state
+
+      - left:
+          source: "orders"
+          keys: ["order_id"]
+        right:
+          source: "payments_agg" 
+          keys: ["order_id"]
+        select_from_right:
+          - payment_total_value
+          - payment_count
+          - payment_type_main
+
+    select_columns:
+      - order_id
+      - customer_id
+      - order_status
+      - order_purchase_timestamp
+      - order_approved_at
+      - order_delivered_carrier_date
+      - order_delivered_customer_date
+      - order_estimated_delivery_date
+      - customer_city
+      - customer_state
+      - payment_total_value
+      - payment_count
+      - payment_type_main
+      - batch_id
+
+    transform:
+      cast_timestamps:
         - order_purchase_timestamp
         - order_approved_at
         - order_delivered_carrier_date
         - order_delivered_customer_date
         - order_estimated_delivery_date
-        - batch_id
 
-    fact_order_items:
-      path: "fact_order_items"
-      key: ["order_id", "order_item_id"]
-      partition_by: ["batch_id"]
-      strategy: "partition_overwrite_by_batch"
-      columns:
-        - order_id
-        - order_item_id
-        - product_id
-        - seller_id
+  fact_order_items:
+    name: "fact_order_items"
+    type: "fact"
+    path: "fact_order_items"
+    sources: ["order_items", "products"]
+    primary_key: ["order_id", "order_item_id"]
+    partition_by: ["batch_id"]
+    joins:
+      - left:
+          source: "order_items"
+          keys: ["product_id"]
+        right:
+          source: "products"
+          keys: ["product_id"]
+        select_from_right:
+          - product_category_name
+
+    select_columns:
+      - order_id
+      - order_item_id
+      - product_id
+      - seller_id
+      - shipping_limit_date
+      - price
+      - freight_value
+      - product_category_name
+      - batch_id
+
+    transform:
+      cast_timestamps:
         - shipping_limit_date
-        - price
-        - freight_value
-        - product_category_name
-        - batch_id
+      cast_numeric:
+        double:
+          - price
+          - freight_value
 
 quality:
   min_category_coverage: 0.70

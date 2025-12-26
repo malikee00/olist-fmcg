@@ -1,13 +1,36 @@
-﻿.venv/
+﻿# =========================
+# Python / Env
+# =========================
+.venv/
 venv/
 __pycache__/
 *.pyc
 .DS_Store
 
-# Data policy: do not commit raw/full data
+# =========================
+# DATA POLICY (IMPORTANT)
+# =========================
+
+# Raw data (kecuali README)
 data/raw/**
 !data/raw/olist/README.md
+!data/raw/olist/.gitkeep
 
-# Airflow artifacts (if you run airflow locally)
+# Bronze / Silver / Gold outputs (Spark artifacts)
+data/bronze/**
+data/silver/**
+data/gold/**
+
+# Checkpoints & runtime state (Airflow-safe)
+data/checkpoints/**
+!data/checkpoints/.gitkeep
+
+# Optional: meta logs (kalau kamu pakai)
+data/**/_meta/**
+
+# =========================
+# Airflow local artifacts
+# =========================
 airflow/logs/
 airflow/airflow.db
+airflow/__pycache__/

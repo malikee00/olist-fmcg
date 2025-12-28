@@ -1,1 +1,103 @@
-﻿# TODO: gold KPI definitions (inputs from silver -> outputs to gold)
+﻿version: 1
+
+global:
+  silver_dir: "data/silver/olist_parquet"
+  gold_dir: "data/gold/olist_parquet"
+  batch_key: "batch_id"
+
+incremental:
+  mode: "partition_overwrite"
+  window_strategy: "affected_dates_from_batch"
+
+business_rules:
+  delivered_only: true   
+
+tables:
+  kpi_daily:
+    path: "kpi_daily"
+    grain: ["date"]
+    partition_by: ["date"]
+    source: "base_items_daily"
+    group_by: ["date"]
+    metrics:
+      - name: revenue
+        op: sum
+        col: price
+      - name: orders
+        op: count_distinct
+        col: order_id
+    derived_metrics:
+      - name: aov
+        expr: "CASE WHEN orders = 0 THEN 0 ELSE revenue / orders END"
+
+  kpi_monthly:
+    path: "kpi_monthly"
+    grain: ["month"]
+    partition_by: ["month"]
+    source: "base_items_monthly"
+    group_by: ["month"]
+    metrics:
+      - name: revenue
+        op: sum
+        col: price
+      - name: orders
+        op: count_distinct
+        col: order_id
+    derived_metrics:
+      - name: aov
+        expr: "CASE WHEN orders = 0 THEN 0 ELSE revenue / orders END"
+
+  top_categories:
+    path: "top_products"         
+    grain: ["month", "product_category_name"]
+    partition_by: ["month"]
+    source: "base_items_monthly"
+    group_by: ["month", "product_category_name"]
+    metrics:
+      - name: revenue
+        op: sum
+        col: price
+      - name: orders
+        op: count_distinct
+        col: order_id
+      - name: avg_price
+        op: avg
+        col: price
+      - name: avg_freight
+        op: avg
+        col: freight_value
+
+  payment_mix:
+    path: "payment_mix"
+    grain: ["month", "payment_type"]
+    partition_by: ["month"]
+    source: "orders_monthly"     
+    group_by: ["month", "payment_type"]
+    metrics:
+      - name: total_payment_value
+        op: sum
+        col: payment_total_value
+    derived_window:
+      - name: share
+        over_partition_by: ["month"]
+        expr: "CASE WHEN month_total = 0 THEN 0 ELSE total_payment_value / month_total END"
+
+  kpi_by_state:
+    enabled: true
+    path: "kpi_by_state"
+    grain: ["month", "customer_state"]
+    partition_by: ["month"]
+    source: "base_items_monthly"
+    group_by: ["month", "customer_state"]
+    metrics:
+      - name: revenue
+        op: sum
+        col: price
+      - name: orders
+        op: count_distinct
+        col: order_id
+
+quality:
+  min_rows_per_partition: 1
+  forbid_negative: true
+  enforce_uniqueness: true

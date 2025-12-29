@@ -8,6 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openjdk-17-jre-headless \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update \
+    && apt-get install -y postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
 USER airflow
 
 COPY docker/airflow/requirements.txt /requirements.txt

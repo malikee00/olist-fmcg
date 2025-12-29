@@ -1,9 +1,9 @@
 ﻿from __future__ import annotations
 
-import glob
 import json
 import os
 import re
+import glob
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,7 +16,7 @@ from airflow.utils.trigger_rule import TriggerRule
 
 
 DAG_ID = "olist_pipeline"
-SCHEDULE = "*/30 * * * *"
+SCHEDULE = "*/10 * * * *"
 
 PROJECT_ROOT = Path(os.getenv("PROJECT_ROOT", Path(__file__).resolve().parents[2]))
 
@@ -31,8 +31,10 @@ PHASE2 = SCRIPTS_DIR / "run_phase2.sh"
 PHASE3 = SCRIPTS_DIR / "run_phase3.sh"
 PHASE4 = SCRIPTS_DIR / "run_phase4.sh"
 
+EXPORT_GOLD = SCRIPTS_DIR / "export_gold_csv.sh"
+PUBLISH_SUPABASE = SCRIPTS_DIR / "load_supabase.sh"
+
 BASH = os.getenv("BASH_BIN", "bash")
-XCOM_KEY_BATCH_ID = "batch_id"
 
 
 def _find_markers_sorted() -> list[Path]:
@@ -57,11 +59,8 @@ def _read_last_processed_batch_id() -> Optional[str]:
 
 
 def choose_branch(**context) -> str:
-    ti = context["ti"]
-
     markers = _find_markers_sorted()
     if not markers:
-        ti.xcom_push(key=XCOM_KEY_BATCH_ID, value=None)
         return "t_noop"
 
     latest_marker = markers[0]
@@ -70,7 +69,6 @@ def choose_branch(**context) -> str:
         raise RuntimeError(f"Marker filename not parseable: {latest_marker.name}")
 
     last_batch_id = _read_last_processed_batch_id()
-    ti.xcom_push(key=XCOM_KEY_BATCH_ID, value=batch_id)
 
     if last_batch_id and batch_id == last_batch_id:
         return "t_noop"
@@ -101,30 +99,25 @@ def run_bash(script_path: Path, script_args: list[str] | None = None) -> None:
         raise RuntimeError(f"Script failed: {script_path.name} | exit_code={proc.returncode}")
 
 
-def run_phase3(**context) -> None:
-    ti = context["ti"]
-    batch_id = ti.xcom_pull(task_ids="t_branch_on_marker_and_checkpoint", key=XCOM_KEY_BATCH_ID)
-    if not batch_id or not isinstance(batch_id, str):
-        raise RuntimeError("Missing batch_id in XCom. Check choose_branch().")
-    run_bash(script_path=PHASE3, script_args=[batch_id])
-
-
 def notify_success(**context) -> None:
     markers = _find_markers_sorted()
     if not markers:
-        print("SUCCESS (NO-OP): no marker in incoming/")
+        print("SUCCESS (NO-OP): No marker found in incoming/. Nothing to process.")
         return
+
     latest_marker = markers[0]
     batch_id = _extract_batch_id_from_marker(latest_marker) or "<unknown>"
     last_batch_id = _read_last_processed_batch_id()
+
     print("SUCCESS")
-    print(f"marker={latest_marker.name}")
-    print(f"batch_id={batch_id}")
-    print(f"checkpoint_last_batch_id={last_batch_id}")
+    print(f"Latest marker: {latest_marker.name}")
+    print(f"Marker batch : {batch_id}")
+    print(f"Checkpoint last_batch_id: {last_batch_id}")
+    print("Gold + Supabase publish should be updated.")
 
 
 def notify_failure(**context) -> None:
-    print("FAILURE: at least one phase failed. check task logs.")
+    print("FAILURE: At least one step failed. Check logs.")
 
 
 default_args = {
@@ -141,7 +134,7 @@ with DAG(
     schedule=SCHEDULE,
     catchup=False,
     max_active_runs=1,
-    tags=["olist", "uplift"],
+    tags=["olist", "uplift", "airflow", "pseudo-realtime"],
 ) as dag:
     t_start = EmptyOperator(task_id="t_start")
 
@@ -160,13 +153,26 @@ with DAG(
 
     t_phase3 = PythonOperator(
         task_id="t_phase3_silver",
-        python_callable=run_phase3,
+        python_callable=run_bash,
+        op_kwargs={"script_path": PHASE3, "script_args": []},
     )
 
     t_phase4 = PythonOperator(
         task_id="t_phase4_gold",
         python_callable=run_bash,
         op_kwargs={"script_path": PHASE4, "script_args": []},
+    )
+
+    t_export_gold_csv = PythonOperator(
+        task_id="t_export_gold_csv",
+        python_callable=run_bash,
+        op_kwargs={"script_path": EXPORT_GOLD, "script_args": []},
+    )
+
+    t_publish_supabase = PythonOperator(
+        task_id="t_publish_supabase",
+        python_callable=run_bash,
+        op_kwargs={"script_path": PUBLISH_SUPABASE, "script_args": []},
     )
 
     t_join = EmptyOperator(
@@ -190,7 +196,9 @@ with DAG(
 
     t_start >> t_branch
     t_branch >> t_noop >> t_join
-    t_branch >> t_phase2 >> t_phase3 >> t_phase4 >> t_join
+
+    t_branch >> t_phase2 >> t_phase3 >> t_phase4 >> t_export_gold_csv >> t_publish_supabase >> t_join
+
     t_join >> t_notify_success
-    [t_phase2, t_phase3, t_phase4] >> t_notify_failure
+    [t_phase2, t_phase3, t_phase4, t_export_gold_csv, t_publish_supabase] >> t_notify_failure
     [t_notify_success, t_notify_failure] >> t_end

@@ -1,4 +1,5 @@
-﻿from __future__ import annotations
+﻿# spark_jobs/gold_aggregate.py
+from __future__ import annotations
 
 import argparse
 import json
@@ -9,7 +10,8 @@ from typing import Dict, Any, List
 import yaml
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
-from pyspark.sql.window import Window
+from pyspark.sql import Window
+from pyspark.storagelevel import StorageLevel
 
 
 def read_yaml(path: str) -> dict:
@@ -95,21 +97,25 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
 
     batch_key = kpis["global"].get("batch_key", "batch_id")
     delivered_only = bool(kpis.get("business_rules", {}).get("delivered_only", True))
+    enable_rowcounts = bool(kpis.get("global", {}).get("enable_rowcounts", False))
 
-    spark = SparkSession.builder.appName("uplift_phase4_gold_aggregate").getOrCreate()
+    spark = (
+        SparkSession.builder
+        .appName("uplift_phase4_gold_aggregate")
+        .getOrCreate()
+    )
     spark.sparkContext.setLogLevel("WARN")
     apply_windows_bind_mount_safe_conf(spark)
 
     fact_orders_path = os.path.join(silver_dir, "fact_orders")
     fact_items_path = os.path.join(silver_dir, "fact_order_items")
     dim_products_path = os.path.join(silver_dir, "dim_products")
-    dim_customers_path = os.path.join(silver_dir, "dim_customers")
 
     orders = spark.read.parquet(fact_orders_path)
     items = spark.read.parquet(fact_items_path)
     products = spark.read.parquet(dim_products_path)
-    customers = spark.read.parquet(dim_customers_path)
 
+    # 1) Minimal batch filter
     orders_batch = orders.filter(F.col(batch_key) == F.lit(batch_id))
 
     if delivered_only and "order_status" in orders_batch.columns:
@@ -120,24 +126,41 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
 
     orders_batch = (
         orders_batch
+        .select(
+            "order_id",
+            "order_purchase_timestamp",
+        )
         .withColumn("date", F.to_date(F.col("order_purchase_timestamp")))
         .withColumn("month", F.date_format(F.col("order_purchase_timestamp"), "yyyy-MM"))
-    )
+    ).persist(StorageLevel.MEMORY_AND_DISK)
 
     affected_dates = [r["date"].isoformat() for r in orders_batch.select("date").distinct().collect()]
     affected_months = [r["month"] for r in orders_batch.select("month").distinct().collect()]
 
     if not affected_dates:
         print(f"[NO-OP] No affected dates for batch_id={batch_id}")
+        orders_batch.unpersist()
         spark.stop()
         return
 
+    # 2) Filter orders_all 
     orders_all = orders
     if delivered_only and "order_status" in orders_all.columns:
         orders_all = orders_all.filter(F.col("order_status") == F.lit("delivered"))
 
+    # Keep only columns used downstream 
+    keep_orders_cols = [c for c in [
+        "order_id",
+        "order_purchase_timestamp",
+        "customer_state",
+        "customer_city",
+        "payment_total_value",
+        "payment_type_main",
+    ] if c in orders_all.columns]
+
     orders_all = (
         orders_all
+        .select(*keep_orders_cols)
         .withColumn("date", F.to_date(F.col("order_purchase_timestamp")))
         .withColumn("month", F.date_format(F.col("order_purchase_timestamp"), "yyyy-MM"))
         .withColumn("payment_total_value", F.col("payment_total_value").cast("double"))
@@ -148,9 +171,10 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         )
     )
 
-    orders_daily = orders_all.filter(F.col("date").isin(affected_dates))
-    orders_monthly = orders_all.filter(F.col("month").isin(affected_months))
+    orders_daily = orders_all.filter(F.col("date").isin(affected_dates)).persist(StorageLevel.MEMORY_AND_DISK)
+    orders_monthly = orders_all.filter(F.col("month").isin(affected_months)).persist(StorageLevel.MEMORY_AND_DISK)
 
+    # 3) Reduce items by semi-joining with affected order_ids 
     wanted_items = [c for c in ["order_id", "order_item_id", "product_id", "price", "freight_value", batch_key] if c in items.columns]
     items_use = (
         safe_cols(items, wanted_items)
@@ -158,10 +182,18 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         .withColumn("freight_value", F.col("freight_value").cast("double"))
     )
 
+    affected_order_ids_daily = orders_daily.select("order_id").distinct()
+    affected_order_ids_monthly = orders_monthly.select("order_id").distinct()
+
+    items_daily = items_use.join(affected_order_ids_daily, on="order_id", how="inner").persist(StorageLevel.MEMORY_AND_DISK)
+    items_monthly = items_use.join(affected_order_ids_monthly, on="order_id", how="inner").persist(StorageLevel.MEMORY_AND_DISK)
+
+    # 4) Products dim 
     prod_use = products.select("product_id", "product_category_name")
+    prod_use = F.broadcast(prod_use)
 
     base_daily = (
-        items_use
+        items_daily
         .join(orders_daily.select("order_id", "date", "month", "customer_state", "customer_city"), on="order_id", how="inner")
         .join(prod_use, on="product_id", how="left")
         .withColumn(
@@ -169,10 +201,10 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
             F.when(F.col("product_category_name").isNull() | (F.col("product_category_name") == ""), F.lit("unknown"))
              .otherwise(F.col("product_category_name"))
         )
-    )
+    ).persist(StorageLevel.MEMORY_AND_DISK)
 
     base_monthly = (
-        items_use
+        items_monthly
         .join(orders_monthly.select("order_id", "date", "month", "customer_state", "customer_city"), on="order_id", how="inner")
         .join(prod_use, on="product_id", how="left")
         .withColumn(
@@ -180,7 +212,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
             F.when(F.col("product_category_name").isNull() | (F.col("product_category_name") == ""), F.lit("unknown"))
              .otherwise(F.col("product_category_name"))
         )
-    )
+    ).persist(StorageLevel.MEMORY_AND_DISK)
 
     orders_monthly_view = orders_monthly.select("month", "payment_type", "payment_total_value", "order_id")
 
@@ -219,7 +251,9 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
             ).drop("month_total")
 
         write_partition_overwrite(agg_df, out_path, partition_by)
-        rowcounts[key] = int(agg_df.count())
+
+        if enable_rowcounts:
+            rowcounts[key] = int(agg_df.count())
 
     meta_payload = {
         "batch_id": batch_id,
@@ -227,7 +261,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         "window_strategy": kpis["incremental"]["window_strategy"],
         "affected_dates": affected_dates,
         "affected_months": affected_months,
-        "rowcounts": rowcounts,
+        "rowcounts": rowcounts if enable_rowcounts else {"_disabled": True},
     }
     write_json(os.path.join(meta_dir, f"batch_{batch_id}.json"), meta_payload)
 
@@ -236,7 +270,20 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         "updated_at": datetime.utcnow().isoformat(),
     })
 
-    print(f"[OK] Gold aggregate completed for batch_id={batch_id}. affected_dates={len(affected_dates)}, affected_months={len(affected_months)}")
+    # cleanup caches
+    orders_batch.unpersist()
+    orders_daily.unpersist()
+    orders_monthly.unpersist()
+    items_daily.unpersist()
+    items_monthly.unpersist()
+    base_daily.unpersist()
+    base_monthly.unpersist()
+
+    print(
+        f"[OK] Gold aggregate completed for batch_id={batch_id}. "
+        f"affected_dates={len(affected_dates)}, affected_months={len(affected_months)}, "
+        f"rowcounts_enabled={enable_rowcounts}"
+    )
     spark.stop()
 
 

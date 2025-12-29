@@ -1,7 +1,8 @@
-﻿CREATE OR REPLACE VIEW analytics.vw_kpi_daily AS
+﻿-- sql/views/vw_kpi_daily.sql
+CREATE OR REPLACE VIEW analytics.vw_kpi_daily AS
 SELECT
   date,
   revenue,
   orders,
   aov
-FROM gold.kpi_daily;
+FROM analytics.kpi_daily;

@@ -1,7 +1,8 @@
-﻿CREATE OR REPLACE VIEW analytics.vw_kpi_monthly AS
+﻿-- sql/views/vw_kpi_monthly.sql
+CREATE OR REPLACE VIEW analytics.vw_kpi_monthly AS
 WITH base AS (
   SELECT month, revenue, orders, aov
-  FROM gold.kpi_monthly
+  FROM analytics.kpi_monthly
 ),
 mom AS (
   SELECT

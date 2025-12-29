@@ -15,6 +15,25 @@ def read_yaml(path: str) -> dict:
         return yaml.safe_load(f)
 
 
+def apply_spark_hardening(spark: SparkSession) -> None:
+    try:
+        hconf = spark.sparkContext._jsc.hadoopConfiguration()
+        hconf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+        hconf.set("parquet.enable.summary-metadata", "false")
+        hconf.set("mapreduce.fileoutputcommitter.cleanup-failures.ignored", "true")
+    except Exception:
+        pass
+
+    spark.conf.set(
+        "spark.sql.sources.commitProtocolClass",
+        "org.apache.spark.sql.execution.datasources.SQLHadoopMapReduceCommitProtocol",
+    )
+    spark.conf.set(
+        "spark.sql.parquet.output.committer.class",
+        "org.apache.parquet.hadoop.ParquetOutputCommitter",
+    )
+
+
 def fail(msg: str) -> None:
     raise RuntimeError(msg)
 
@@ -47,6 +66,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     affected_months = meta.get("affected_months", [])
 
     spark = SparkSession.builder.appName("uplift_phase4_gold_validate").getOrCreate()
+    apply_spark_hardening(spark)
 
     tables_cfg = kpis["tables"]
 
@@ -77,7 +97,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     if enforce_uniqueness and safe_count(km.groupBy("month").count().filter(F.col("count") > 1)) > 0:
         fail("[GOLD][AFFECTED] duplicate month in kpi_monthly")
 
-    # top_categories 
+    # top_categories
     tp_key = "top_categories"
     tp_path = os.path.join(gold_dir, tables_cfg[tp_key]["path"]); check_exists(tp_path)
     tp = spark.read.parquet(tp_path).filter(F.col("month").isin(affected_months))
@@ -98,7 +118,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     if enforce_uniqueness and safe_count(pm.groupBy("month", "payment_type").count().filter(F.col("count") > 1)) > 0:
         fail("[GOLD][AFFECTED] duplicate (month, payment_type) in payment_mix")
 
-    # kpi_by_state 
+    # kpi_by_state
     ks_cfg = tables_cfg.get("kpi_by_state", {})
     if ks_cfg and ks_cfg.get("enabled", True):
         ks_path = os.path.join(gold_dir, ks_cfg["path"]); check_exists(ks_path)

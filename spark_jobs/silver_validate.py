@@ -9,12 +9,28 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 
 
-# =====================================================
-# Helpers
-# =====================================================
 def read_yaml(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def apply_spark_hardening(spark: SparkSession) -> None:
+    try:
+        hconf = spark.sparkContext._jsc.hadoopConfiguration()
+        hconf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+        hconf.set("parquet.enable.summary-metadata", "false")
+        hconf.set("mapreduce.fileoutputcommitter.cleanup-failures.ignored", "true")
+    except Exception:
+        pass
+
+    spark.conf.set(
+        "spark.sql.sources.commitProtocolClass",
+        "org.apache.spark.sql.execution.datasources.SQLHadoopMapReduceCommitProtocol",
+    )
+    spark.conf.set(
+        "spark.sql.parquet.output.committer.class",
+        "org.apache.parquet.hadoop.ParquetOutputCommitter",
+    )
 
 
 def fail(msg: str) -> None:
@@ -26,10 +42,6 @@ def safe_count(df) -> int:
 
 
 def coverage_ratio(df, col_name: str) -> float:
-    """
-    % rows where col is non-null and non-empty string (if string).
-    Works for both string and non-string cols.
-    """
     c = F.col(col_name)
     ok = F.when(c.isNotNull() & (F.trim(c.cast("string")) != ""), F.lit(1)).otherwise(F.lit(0))
     return float(df.select(ok.alias("ok")).agg(F.avg("ok").alias("cov")).collect()[0]["cov"])
@@ -39,9 +51,6 @@ def warn(msg: str) -> None:
     print(f"[WARN] {msg}")
 
 
-# =====================================================
-# Main validation
-# =====================================================
 def run(config_path: str, batch_id: str) -> None:
     cfg = read_yaml(config_path)
 
@@ -52,7 +61,7 @@ def run(config_path: str, batch_id: str) -> None:
     min_category_cov = float(quality.get("min_category_coverage", 0.70))
     min_state_cov = float(quality.get("min_state_coverage", 0.80))
 
-    global_drop_fail_ratio = quality.get("global_drop_fail_ratio")  
+    global_drop_fail_ratio = quality.get("global_drop_fail_ratio")
     prev_total_path = os.path.join(output_dir, "_meta", "global_counts.json")
 
     out = cfg["outputs"]
@@ -62,6 +71,10 @@ def run(config_path: str, batch_id: str) -> None:
     dp_path = os.path.join(output_dir, out["dim_products"]["path"])
 
     spark = SparkSession.builder.appName("uplift_phase3_silver_validate").getOrCreate()
+    apply_spark_hardening(spark)
+
+    cat_cov = None
+    state_cov = None
 
     # -------------------------
     # Batch-level checks (STRICT)
@@ -153,7 +166,6 @@ def run(config_path: str, batch_id: str) -> None:
                 if prev_fi > 0 and total_fi < ratio * prev_fi:
                     fail(f"[SILVER][GLOBAL] fact_order_items total dropped too much: {total_fi} < {ratio:.2f} * {prev_fi}")
             else:
-                # only warn
                 if prev_fo > 0 and total_fo < 0.95 * prev_fo:
                     warn(f"fact_orders total decreased noticeably: {total_fo} vs prev {prev_fo}")
                 if prev_fi > 0 and total_fi < 0.95 * prev_fi:
@@ -182,10 +194,13 @@ def run(config_path: str, batch_id: str) -> None:
     except Exception as e:
         warn(f"Failed writing global_counts.json: {e}")
 
+    cat_cov_s = f"{cat_cov:.2%}" if isinstance(cat_cov, float) else "n/a"
+    state_cov_s = f"{state_cov:.2%}" if isinstance(state_cov, float) else "n/a"
+
     print(
         "[PASS] Silver validation OK for batch="
         f"{batch_id}. rows: fact_orders={fo_cnt}, fact_items={fi_cnt}. "
-        f"coverage: category={cat_cov:.2%}, state={state_cov:.2%}."
+        f"coverage: category={cat_cov_s}, state={state_cov_s}."
     )
 
     spark.stop()

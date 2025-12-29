@@ -5,18 +5,44 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from configs.loaders import load_bronze_tables, load_settings
 
-from pyspark.sql import SparkSession, functions as F
+from pyspark.sql import SparkSession
 
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def apply_spark_hardening(spark: SparkSession) -> None:
+    """
+    Harden Spark/Hadoop output behavior for Docker-on-Windows volumes:
+    - Disable _SUCCESS marker
+    - Disable parquet summary metadata
+    - Avoid chmod/setPermission issues on mounted volumes
+    """
+    try:
+        hconf = spark.sparkContext._jsc.hadoopConfiguration()
+        hconf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+        hconf.set("parquet.enable.summary-metadata", "false")
+        hconf.set("mapreduce.fileoutputcommitter.cleanup-failures.ignored", "true")
+    except Exception:
+        pass
+
+    # Commit protocol hints (safe defaults)
+    spark.conf.set(
+        "spark.sql.sources.commitProtocolClass",
+        "org.apache.spark.sql.execution.datasources.SQLHadoopMapReduceCommitProtocol",
+    )
+    spark.conf.set(
+        "spark.sql.parquet.output.committer.class",
+        "org.apache.parquet.hadoop.ParquetOutputCommitter",
+    )
 
 
 def read_checkpoint_last_batch_id(checkpoint_dir: Path) -> str:
@@ -26,8 +52,8 @@ def read_checkpoint_last_batch_id(checkpoint_dir: Path) -> str:
 
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
-    except Exception:
-        raise RuntimeError(f"Checkpoint state is invalid/corrupted: {state_path}")
+    except Exception as e:
+        raise RuntimeError(f"Checkpoint state is invalid/corrupted: {state_path} | {e}")
 
     batch_id = state.get("last_batch_id")
     if not batch_id:
@@ -81,6 +107,7 @@ def main() -> int:
 
     spark = SparkSession.builder.appName("olist-bronze-validate").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
+    apply_spark_hardening(spark)
 
     try:
         print(f"[INFO] Bronze root : {bronze_root}")
@@ -102,7 +129,6 @@ def main() -> int:
                 failures.append(f"{table_name}: partition missing for batch: {part_dir}")
                 continue
 
-            # Read only this batch partition
             df = spark.read.parquet(str(part_dir))
 
             col_count = len(df.columns)
@@ -115,7 +141,7 @@ def main() -> int:
                 failures.append(f"{table_name}: row_count=0 (invalid)")
                 continue
 
-            missing_required = []
+            missing_required: List[str] = []
             if not args.skip_required_cols:
                 missing_required = check_required_columns(table_name, df.columns)
                 if missing_required:

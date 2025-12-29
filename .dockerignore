@@ -1,0 +1,6 @@
+data/
+logs/
+plugins/
+.git/
+*.parquet
+*.csv

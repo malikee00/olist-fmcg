@@ -113,7 +113,7 @@ def write_bronze_table(
     partition_by: str,
     write_format: str,
     write_mode: str,
-    on_existing: str,  
+    on_existing: str,
 ) -> Tuple[str, int, bool]:
     """
     Returns (output_dir, row_count, skipped)
@@ -239,6 +239,21 @@ def mark_processed(
 
 
 # -----------------------------
+# Spark config: IMPORTANT FIX for Windows bind mount
+# -----------------------------
+def apply_windows_bind_mount_safe_conf(spark: SparkSession) -> None:
+    """
+    On Docker Desktop Windows bind mounts, chmod is often not permitted.
+    Spark/Hadoop writes a _SUCCESS marker and tries chmod -> job can fail.
+    This disables the marker and some extra parquet metadata files.
+    """
+    hconf = spark.sparkContext._jsc.hadoopConfiguration()
+    hconf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+    hconf.set("parquet.enable.summary-metadata", "false")
+    hconf.set("mapreduce.fileoutputcommitter.cleanup-failures.ignored", "true")
+
+
+# -----------------------------
 # Main
 # -----------------------------
 def main() -> int:
@@ -268,6 +283,7 @@ def main() -> int:
 
     spark = SparkSession.builder.appName("olist-bronze-ingest").getOrCreate()
     spark.sparkContext.setLogLevel("WARN")
+    apply_windows_bind_mount_safe_conf(spark)
 
     try:
         marker = select_latest_batch_marker(incoming_dir)
@@ -343,7 +359,6 @@ def main() -> int:
                 }
             )
 
-        # If everything got skipped due to existing partitions, treat as NO-OP success
         if not any_written:
             print("[NO-OP] All tables already have this batch partition. Nothing written.")
             return 0

@@ -1,0 +1,5 @@
+pyyaml
+pandas
+pyarrow
+pyspark==3.5.1
+psycopg2-binary

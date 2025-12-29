@@ -12,9 +12,6 @@ from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 
 
-# =====================================================
-# Helpers
-# =====================================================
 def read_yaml(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -35,6 +32,13 @@ def safe_cols(df: DataFrame, cols: List[str]) -> DataFrame:
     if missing:
         raise ValueError(f"Missing cols: {missing}. Found={df.columns}")
     return df.select(*cols)
+
+
+def apply_windows_bind_mount_safe_conf(spark: SparkSession) -> None:
+    hconf = spark.sparkContext._jsc.hadoopConfiguration()
+    hconf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+    hconf.set("parquet.enable.summary-metadata", "false")
+    hconf.set("mapreduce.fileoutputcommitter.cleanup-failures.ignored", "true")
 
 
 def agg_from_config(df: DataFrame, group_by: List[str], metrics: List[Dict[str, Any]]) -> DataFrame:
@@ -76,9 +80,6 @@ def write_partition_overwrite(df: DataFrame, out_path: str, partition_by: List[s
     )
 
 
-# =====================================================
-# Main
-# =====================================================
 def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     settings = read_yaml(settings_path)
     kpis = read_yaml(kpis_path)
@@ -87,7 +88,6 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     silver_dir = settings["paths"]["silver_dir"]
     gold_dir = settings["paths"]["gold_dir"]
 
-    # NOTE: filenames are fixed to your project convention (no settings["checkpoints"])
     gold_state_path = os.path.join(checkpoint_dir, "gold_aggregate_state.json")
 
     meta_dir = os.path.join(gold_dir, "_meta")
@@ -97,8 +97,9 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     delivered_only = bool(kpis.get("business_rules", {}).get("delivered_only", True))
 
     spark = SparkSession.builder.appName("uplift_phase4_gold_aggregate").getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
+    apply_windows_bind_mount_safe_conf(spark)
 
-    # ---- read Silver
     fact_orders_path = os.path.join(silver_dir, "fact_orders")
     fact_items_path = os.path.join(silver_dir, "fact_order_items")
     dim_products_path = os.path.join(silver_dir, "dim_products")
@@ -107,9 +108,8 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     orders = spark.read.parquet(fact_orders_path)
     items = spark.read.parquet(fact_items_path)
     products = spark.read.parquet(dim_products_path)
-    customers = spark.read.parquet(dim_customers_path)  
+    customers = spark.read.parquet(dim_customers_path)
 
-    # ---- affected window (from batch)
     orders_batch = orders.filter(F.col(batch_key) == F.lit(batch_id))
 
     if delivered_only and "order_status" in orders_batch.columns:
@@ -132,7 +132,6 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         spark.stop()
         return
 
-    # ---- build base filtered views
     orders_all = orders
     if delivered_only and "order_status" in orders_all.columns:
         orders_all = orders_all.filter(F.col("order_status") == F.lit("delivered"))
@@ -153,11 +152,14 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     orders_monthly = orders_all.filter(F.col("month").isin(affected_months))
 
     wanted_items = [c for c in ["order_id", "order_item_id", "product_id", "price", "freight_value", batch_key] if c in items.columns]
-    items_use = safe_cols(items, wanted_items).withColumn("price", F.col("price").cast("double")).withColumn("freight_value", F.col("freight_value").cast("double"))
+    items_use = (
+        safe_cols(items, wanted_items)
+        .withColumn("price", F.col("price").cast("double"))
+        .withColumn("freight_value", F.col("freight_value").cast("double"))
+    )
 
     prod_use = products.select("product_id", "product_category_name")
 
-    # base for daily (item-level)
     base_daily = (
         items_use
         .join(orders_daily.select("order_id", "date", "month", "customer_state", "customer_city"), on="order_id", how="inner")
@@ -169,7 +171,6 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         )
     )
 
-    # base for monthly (item-level)
     base_monthly = (
         items_use
         .join(orders_monthly.select("order_id", "date", "month", "customer_state", "customer_city"), on="order_id", how="inner")
@@ -181,7 +182,6 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         )
     )
 
-    # orders monthly view (order-level) for payment_mix
     orders_monthly_view = orders_monthly.select("month", "payment_type", "payment_total_value", "order_id")
 
     tables_cfg = kpis["tables"]
@@ -210,7 +210,6 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         agg_df = agg_from_config(src_df, group_by=group_by, metrics=metrics)
         agg_df = apply_derived_metrics(agg_df, derived)
 
-        # payment_mix special: share
         if key == "payment_mix":
             w = Window.partitionBy("month")
             agg_df = agg_df.withColumn("month_total", F.sum("total_payment_value").over(w))
@@ -222,7 +221,6 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         write_partition_overwrite(agg_df, out_path, partition_by)
         rowcounts[key] = int(agg_df.count())
 
-    # ---- meta
     meta_payload = {
         "batch_id": batch_id,
         "run_at_utc": datetime.utcnow().isoformat(),
@@ -233,7 +231,6 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     }
     write_json(os.path.join(meta_dir, f"batch_{batch_id}.json"), meta_payload)
 
-    # ---- checkpoint
     write_json(gold_state_path, {
         "last_processed_batch_id": batch_id,
         "updated_at": datetime.utcnow().isoformat(),

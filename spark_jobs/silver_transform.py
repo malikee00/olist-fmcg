@@ -11,9 +11,6 @@ from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
 
 
-# =====================================================
-# IO helpers
-# =====================================================
 def read_yaml(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
@@ -37,6 +34,13 @@ def require_cols(df: DataFrame, cols: List[str], ctx: str) -> None:
         raise ValueError(f"[{ctx}] Missing required columns: {missing}. Found={df.columns}")
 
 
+def apply_windows_bind_mount_safe_conf(spark: SparkSession) -> None:
+    hconf = spark.sparkContext._jsc.hadoopConfiguration()
+    hconf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+    hconf.set("parquet.enable.summary-metadata", "false")
+    hconf.set("mapreduce.fileoutputcommitter.cleanup-failures.ignored", "true")
+
+
 def read_bronze_batch(
     spark: SparkSession,
     input_dir: str,
@@ -52,9 +56,6 @@ def read_bronze_batch(
     return df.filter(F.col(batch_key) == F.lit(batch_id))
 
 
-# =====================================================
-# Transform primitives
-# =====================================================
 def apply_cast_timestamps(df: DataFrame, cols: List[str]) -> DataFrame:
     for c in cols:
         if c in df.columns:
@@ -96,9 +97,6 @@ def select_cols_strict(df: DataFrame, cols: List[str]) -> DataFrame:
     return df.select(*cols)
 
 
-# =====================================================
-# SAFE JOIN (FIX AMBIGUOUS_REFERENCE)
-# =====================================================
 def safe_join(
     left_df: DataFrame,
     right_df: DataFrame,
@@ -106,11 +104,6 @@ def safe_join(
     left_keys: List[str],
     right_keys: List[str]
 ) -> DataFrame:
-    """
-    Join helper to avoid duplicate / ambiguous columns.
-    - If left_keys == right_keys: use join(on=keys)
-    - Else: join by condition, then drop right key columns
-    """
     if left_keys == right_keys:
         return left_df.join(right_df, on=left_keys, how=how)
 
@@ -124,9 +117,6 @@ def safe_join(
     return joined
 
 
-# =====================================================
-# Incremental write strategies
-# =====================================================
 def upsert_union_dedup_overwrite(batch_df: DataFrame, out_path: str, key_cols: List[str]) -> None:
     spark = batch_df.sparkSession
     if os.path.exists(out_path) and os.listdir(out_path):
@@ -163,9 +153,6 @@ def write_meta(output_dir: str, batch_id: str, payload: Dict[str, Any]) -> None:
         json.dump(payload, f, indent=2)
 
 
-# =====================================================
-# Virtual source: payments_agg
-# =====================================================
 def build_payments_agg(payments_b: DataFrame) -> DataFrame:
     agg_base = (
         payments_b
@@ -201,9 +188,6 @@ def build_payments_agg(payments_b: DataFrame) -> DataFrame:
     return agg_base.join(main_type, on="order_id", how="left")
 
 
-# =====================================================
-# MAIN
-# =====================================================
 def run(config_path: str, batch_id: str) -> None:
     cfg = read_yaml(config_path)
     g = cfg["global"]
@@ -215,6 +199,8 @@ def run(config_path: str, batch_id: str) -> None:
     spark = SparkSession.builder.appName(
         "uplift_phase3_silver_transform_config_driven"
     ).getOrCreate()
+    spark.sparkContext.setLogLevel("WARN")
+    apply_windows_bind_mount_safe_conf(spark)
 
     bronze_sources: Dict[str, DataFrame] = {}
     for src_name, src_cfg in cfg["sources"].items():
@@ -230,9 +216,6 @@ def run(config_path: str, batch_id: str) -> None:
 
     outputs_cfg = cfg["outputs"]
 
-    # =================================================
-    # DIM: customers
-    # =================================================
     dim_c_cfg = outputs_cfg["dim_customers"]
     customers_b = bronze_sources["customers"]
     std = dim_c_cfg.get("transform", {}).get("standardize", {})
@@ -251,9 +234,6 @@ def run(config_path: str, batch_id: str) -> None:
         dim_c_cfg["primary_key"]
     )
 
-    # =================================================
-    # DIM: products
-    # =================================================
     dim_p_cfg = outputs_cfg["dim_products"]
     products_b = bronze_sources["products"]
     products_b = apply_fill_unknown(
@@ -273,14 +253,8 @@ def run(config_path: str, batch_id: str) -> None:
         dim_p_cfg["primary_key"]
     )
 
-    # =================================================
-    # Virtual source
-    # =================================================
     payments_agg_df = build_payments_agg(bronze_sources["payments"])
 
-    # =================================================
-    # FACT: orders
-    # =================================================
     fo_cfg = outputs_cfg["fact_orders"]
     orders_b = bronze_sources["orders"]
     orders_b = apply_cast_timestamps(
@@ -327,9 +301,6 @@ def run(config_path: str, batch_id: str) -> None:
         fo_cfg["partition_by"]
     )
 
-    # =================================================
-    # FACT: order_items
-    # =================================================
     fi_cfg = outputs_cfg["fact_order_items"]
     items_b = bronze_sources["order_items"]
 
@@ -374,9 +345,6 @@ def run(config_path: str, batch_id: str) -> None:
         fi_cfg["partition_by"]
     )
 
-    # =================================================
-    # META
-    # =================================================
     meta = {
         "batch_id": batch_id,
         "run_at_utc": datetime.utcnow().isoformat(),

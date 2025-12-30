@@ -1,5 +1,5 @@
 {
-  "last_batch_id": "batch_20251230_0732",
+  "last_batch_id": "batch_20251230_1343",
   "processed_markers": [
     "_BATCH_batch_20251225_0047.ready",
     "_BATCH_batch_20251225_0110.ready",
@@ -18,7 +18,8 @@
     "_BATCH_batch_20251229_1421.ready",
     "_BATCH_batch_20251229_1450.ready",
     "_BATCH_batch_20251230_0004.ready",
-    "_BATCH_batch_20251230_0732.ready"
+    "_BATCH_batch_20251230_0732.ready",
+    "_BATCH_batch_20251230_1343.ready"
   ],
   "processed_batches": [
     "batch_20251225_0047",
@@ -38,7 +39,8 @@
     "batch_20251229_1421",
     "batch_20251229_1450",
     "batch_20251230_0004",
-    "batch_20251230_0732"
+    "batch_20251230_0732",
+    "batch_20251230_1343"
   ],
-  "updated_at": "2025-12-30T00:36:58"
+  "updated_at": "2025-12-30T06:48:25"
 }

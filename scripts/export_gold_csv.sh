@@ -59,11 +59,11 @@ SCHEMAS = {
     },
     "top_categories": {
         "path": gold_dir / "top_products",
-        "cols": ["month", "product_category_name", "revenue", "orders", "avg_price", "avg_freight", "revenue_rank"],
+        "cols": ["month", "product_category_name", "revenue", "orders", "avg_price", "avg_freight"],
         "date_cols": [],
         "month_cols": ["month"],
         "float_cols": ["revenue", "avg_price", "avg_freight"],
-        "int_cols": ["orders", "revenue_rank"],
+        "int_cols": ["orders"],
         "str_cols": ["product_category_name"],
     },
 }

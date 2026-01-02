@@ -1,46 +1,4 @@
 {
-  "last_batch_id": "batch_20251230_1343",
-  "processed_markers": [
-    "_BATCH_batch_20251225_0047.ready",
-    "_BATCH_batch_20251225_0110.ready",
-    "_BATCH_batch_20251225_0118.ready",
-    "_BATCH_batch_20251225_0127.ready",
-    "_BATCH_batch_20251226_1452.ready",
-    "_BATCH_batch_20251228_1919.ready",
-    "_BATCH_batch_20251228_2025.ready",
-    "_BATCH_batch_20251228_2152.ready",
-    "_BATCH_batch_20251228_2159.ready",
-    "_BATCH_batch_20251228_2211.ready",
-    "_BATCH_batch_20251228_2225.ready",
-    "_BATCH_batch_20251229_1058.ready",
-    "_BATCH_batch_20251229_1315.ready",
-    "_BATCH_batch_20251229_1329.ready",
-    "_BATCH_batch_20251229_1421.ready",
-    "_BATCH_batch_20251229_1450.ready",
-    "_BATCH_batch_20251230_0004.ready",
-    "_BATCH_batch_20251230_0732.ready",
-    "_BATCH_batch_20251230_1343.ready"
-  ],
-  "processed_batches": [
-    "batch_20251225_0047",
-    "batch_20251225_0110",
-    "batch_20251225_0118",
-    "batch_20251225_0127",
-    "batch_20251226_1452",
-    "batch_20251228_1919",
-    "batch_20251228_2025",
-    "batch_20251228_2152",
-    "batch_20251228_2159",
-    "batch_20251228_2211",
-    "batch_20251228_2225",
-    "batch_20251229_1058",
-    "batch_20251229_1315",
-    "batch_20251229_1329",
-    "batch_20251229_1421",
-    "batch_20251229_1450",
-    "batch_20251230_0004",
-    "batch_20251230_0732",
-    "batch_20251230_1343"
-  ],
-  "updated_at": "2025-12-30T06:48:25"
+  "last_batch_id": "batch_20260102_1727",
+  "updated_at": "2026-01-02T11:41:05.155996"
 }

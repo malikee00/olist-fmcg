@@ -3,12 +3,11 @@ set -euo pipefail
 
 echo "[INFO] Wrapper: load_supabase.sh -> publish_postgres.sh"
 
-export DB_HOST="${SUPABASE_DB_HOST}"
-export DB_NAME="${SUPABASE_DB_NAME}"
-export DB_USER="${SUPABASE_DB_USER}"
-export DB_PASSWORD="${SUPABASE_DB_PASSWORD}"
-export DB_PORT="${SUPABASE_DB_PORT}"
-export DB_SSLMODE="${SUPABASE_DB_SSLMODE:-require}"
-export DB_SCHEMA="analytics"
+: "${PROJECT_ROOT:?PROJECT_ROOT not set}"
+: "${DB_HOST:?DB_HOST not set}"
+: "${DB_USER:?DB_USER not set}"
+: "${DB_PASSWORD:?DB_PASSWORD not set}"
+: "${DB_PORT:?DB_PORT not set}"
+: "${DB_NAME:?DB_NAME not set}"
 
 exec "$(dirname "$0")/publish_postgres.sh"

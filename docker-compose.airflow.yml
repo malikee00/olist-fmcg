@@ -7,6 +7,10 @@ services:
     restart: unless-stopped
     depends_on:
       - airflow-postgres
+
+    env_file:
+      - .env
+
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
@@ -16,17 +20,21 @@ services:
       PROJECT_ROOT: /opt/project
       PYTHONUNBUFFERED: "1"
 
-      SUPABASE_DB_HOST: ${SUPABASE_DB_HOST}
-      SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
-      SUPABASE_DB_USER: ${SUPABASE_DB_USER}
-      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
-      SUPABASE_DB_PORT: ${SUPABASE_DB_PORT}
-      SUPABASE_DB_SSLMODE: ${SUPABASE_DB_SSLMODE}
+      # Azure Postgres (dipakai oleh wrapper load_supabase.sh)
+      AZURE_DB_HOST: ${AZURE_DB_HOST}
+      AZURE_DB_PORT: ${AZURE_DB_PORT}
+      AZURE_DB_NAME: ${AZURE_DB_NAME}
+      AZURE_DB_USER: ${AZURE_DB_USER}
+      AZURE_DB_PASSWORD: ${AZURE_DB_PASSWORD}
+      AZURE_DB_SSLMODE: ${AZURE_DB_SSLMODE}
+      AZURE_DB_SCHEMA: ${AZURE_DB_SCHEMA}
+
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/plugins:/opt/airflow/plugins
       - ./:/opt/project
       - airflow_logs:/opt/airflow/logs
+
     ports:
       - "8080:8080"
     command: webserver
@@ -39,6 +47,10 @@ services:
     restart: unless-stopped
     depends_on:
       - airflow-postgres
+
+    env_file:
+      - .env
+
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
@@ -48,17 +60,20 @@ services:
       PROJECT_ROOT: /opt/project
       PYTHONUNBUFFERED: "1"
 
-      SUPABASE_DB_HOST: ${SUPABASE_DB_HOST}
-      SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
-      SUPABASE_DB_USER: ${SUPABASE_DB_USER}
-      SUPABASE_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
-      SUPABASE_DB_PORT: ${SUPABASE_DB_PORT}
-      SUPABASE_DB_SSLMODE: ${SUPABASE_DB_SSLMODE}
+      AZURE_DB_HOST: ${AZURE_DB_HOST}
+      AZURE_DB_PORT: ${AZURE_DB_PORT}
+      AZURE_DB_NAME: ${AZURE_DB_NAME}
+      AZURE_DB_USER: ${AZURE_DB_USER}
+      AZURE_DB_PASSWORD: ${AZURE_DB_PASSWORD}
+      AZURE_DB_SSLMODE: ${AZURE_DB_SSLMODE}
+      AZURE_DB_SCHEMA: ${AZURE_DB_SCHEMA}
+
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/plugins:/opt/airflow/plugins
       - ./:/opt/project
       - airflow_logs:/opt/airflow/logs
+
     command: scheduler
 
   airflow-postgres:

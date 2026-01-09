@@ -26,10 +26,13 @@ KPI_BY_STATE="${EXPORT_DIR}/kpi_by_state.csv"
 PAYMENT_MIX="${EXPORT_DIR}/payment_mix.csv"
 TOP_CATEGORIES="${EXPORT_DIR}/top_categories.csv"
 
+# NEW
+PBI_FACT_DAILY="${EXPORT_DIR}/pbi_fact_daily.csv"
+
 # ============================================================
 # VALIDATE EXPORT FILES
 # ============================================================
-for f in "$KPI_DAILY" "$KPI_MONTHLY" "$KPI_BY_STATE" "$PAYMENT_MIX" "$TOP_CATEGORIES"; do
+for f in "$KPI_DAILY" "$KPI_MONTHLY" "$KPI_BY_STATE" "$PAYMENT_MIX" "$TOP_CATEGORIES" "$PBI_FACT_DAILY"; do
   if [[ ! -f "$f" ]]; then
     echo "[ERROR] Missing export file: $f"
     exit 1
@@ -67,7 +70,7 @@ echo "[INFO] Testing DB connection..."
 psql "${CONN}" -v ON_ERROR_STOP=1 -c "select 1 as ok;" >/dev/null
 
 echo "[INFO] Quick CSV sanity check (first 3 lines each)..."
-for f in "$KPI_DAILY" "$KPI_MONTHLY" "$KPI_BY_STATE" "$PAYMENT_MIX" "$TOP_CATEGORIES"; do
+for f in "$KPI_DAILY" "$KPI_MONTHLY" "$KPI_BY_STATE" "$PAYMENT_MIX" "$TOP_CATEGORIES" "$PBI_FACT_DAILY"; do
   echo "---- $(basename "$f")"
   head -n 3 "$f" || true
 done
@@ -102,7 +105,7 @@ CREATE TABLE IF NOT EXISTS ${DB_SCHEMA}._stg_payment_mix (
 );
 
 CREATE TABLE IF NOT EXISTS ${DB_SCHEMA}._stg_top_categories (
-  month                 text,
+  month                  text,
   product_category_name  text,
   revenue                double precision,
   orders                 bigint,
@@ -110,11 +113,29 @@ CREATE TABLE IF NOT EXISTS ${DB_SCHEMA}._stg_top_categories (
   avg_freight            double precision
 );
 
+-- NEW: staging for unified PBI fact
+CREATE TABLE IF NOT EXISTS ${DB_SCHEMA}._stg_pbi_fact_daily (
+  date                  text,
+  month_date            text,
+  customer_state        text,
+  payment_type          text,
+  product_category_name text,
+  revenue               double precision,
+  orders                bigint,
+  total_payment_value   double precision,
+  avg_price             double precision,
+  avg_freight           double precision,
+  batch_id              text,
+  updated_at            text,
+  fact_id               text
+);
+
 TRUNCATE TABLE
   ${DB_SCHEMA}._stg_kpi_monthly,
   ${DB_SCHEMA}._stg_kpi_by_state,
   ${DB_SCHEMA}._stg_payment_mix,
-  ${DB_SCHEMA}._stg_top_categories;
+  ${DB_SCHEMA}._stg_top_categories,
+  ${DB_SCHEMA}._stg_pbi_fact_daily;
 SQL
 
 # ============================================================
@@ -127,7 +148,8 @@ TRUNCATE TABLE
   ${DB_SCHEMA}.kpi_monthly,
   ${DB_SCHEMA}.kpi_by_state,
   ${DB_SCHEMA}.payment_mix,
-  ${DB_SCHEMA}.top_categories;
+  ${DB_SCHEMA}.top_categories,
+  ${DB_SCHEMA}.pbi_fact_daily;
 SQL
 
 # ============================================================
@@ -213,6 +235,51 @@ SELECT
   avg_price,
   avg_freight
 FROM ${DB_SCHEMA}._stg_top_categories;
+SQL
+
+# ============================================================
+# LOAD PBI FACT DAILY (CSV -> staging -> final)
+# ============================================================
+echo "[INFO] Loading PBI Fact Daily (CSV -> staging)..."
+psql "${CONN}" -v ON_ERROR_STOP=1 \
+  -c "\copy ${DB_SCHEMA}._stg_pbi_fact_daily(date,month_date,customer_state,payment_type,product_category_name,revenue,orders,total_payment_value,avg_price,avg_freight,batch_id,updated_at,fact_id) FROM '${PBI_FACT_DAILY}' WITH (FORMAT csv, HEADER true, NULL '')"
+
+echo "[INFO] Loading PBI Fact Daily (staging -> final)..."
+psql "${CONN}" -v ON_ERROR_STOP=1 <<SQL
+INSERT INTO ${DB_SCHEMA}.pbi_fact_daily
+(
+  date,
+  month_date,
+  customer_state,
+  payment_type,
+  product_category_name,
+  revenue,
+  orders,
+  total_payment_value,
+  avg_price,
+  avg_freight,
+  batch_id,
+  updated_at,
+  fact_id
+)
+SELECT
+  to_date(date, 'YYYY-MM-DD') AS date,
+  to_date(month_date, 'YYYY-MM-DD') AS month_date,
+  COALESCE(NULLIF(customer_state, ''), 'unknown') AS customer_state,
+  COALESCE(NULLIF(payment_type, ''), 'unknown') AS payment_type,
+  COALESCE(NULLIF(product_category_name, ''), 'unknown') AS product_category_name,
+  COALESCE(revenue, 0) AS revenue,
+  COALESCE(orders, 0) AS orders,
+  COALESCE(total_payment_value, 0) AS total_payment_value,
+  avg_price,
+  avg_freight,
+  COALESCE(NULLIF(batch_id, ''), 'unknown') AS batch_id,
+  COALESCE(
+    NULLIF(updated_at, '')::timestamptz,
+    now()
+  ) AS updated_at,
+  NULLIF(fact_id, '') AS fact_id
+FROM ${DB_SCHEMA}._stg_pbi_fact_daily;
 SQL
 
 echo "[OK] Publish to PostgreSQL completed successfully."

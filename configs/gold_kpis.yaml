@@ -10,7 +10,7 @@ incremental:
   window_strategy: "affected_dates_from_batch"
 
 business_rules:
-  delivered_only: true   
+  delivered_only: true
 
 tables:
   kpi_daily:
@@ -48,7 +48,7 @@ tables:
         expr: "CASE WHEN orders = 0 THEN 0 ELSE revenue / orders END"
 
   top_categories:
-    path: "top_products"         
+    path: "top_products"
     grain: ["month", "product_category_name"]
     partition_by: ["month"]
     source: "base_items_monthly"
@@ -71,16 +71,15 @@ tables:
     path: "payment_mix"
     grain: ["month", "payment_type"]
     partition_by: ["month"]
-    source: "orders_monthly"     
+    source: "orders_monthly"
     group_by: ["month", "payment_type"]
     metrics:
       - name: total_payment_value
         op: sum
         col: payment_total_value
-    derived_window:
-      - name: share
-        over_partition_by: ["month"]
-        expr: "CASE WHEN month_total = 0 THEN 0 ELSE total_payment_value / month_total END"
+    # NOTE:
+    # - share will be computed in gold_aggregate.py special-case for payment_mix
+    # - do NOT define derived_window here to avoid confusion
 
   kpi_by_state:
     enabled: true
@@ -96,6 +95,32 @@ tables:
       - name: orders
         op: count_distinct
         col: order_id
+
+  # ============================================================
+  # NEW: Power BI Unified Fact (BASIC)
+  # ============================================================
+  pbi_fact_daily:
+    path: "pbi_fact_daily"
+    grain: ["date", "customer_state", "payment_type", "product_category_name"]
+    partition_by: ["date"]
+    source: "pbi_base_daily"
+    group_by: ["date", "customer_state", "payment_type", "product_category_name"]
+    metrics:
+      - name: revenue
+        op: sum
+        col: price
+      - name: orders
+        op: count_distinct
+        col: order_id
+      - name: total_payment_value
+        op: sum
+        col: payment_total_value
+      - name: avg_price
+        op: avg
+        col: price
+      - name: avg_freight
+        op: avg
+        col: freight_value
 
 quality:
   min_rows_per_partition: 1

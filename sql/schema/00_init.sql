@@ -1,5 +1,14 @@
-﻿CREATE SCHEMA IF NOT EXISTS gold;
+﻿-- sql/schema/00_init.sql
+
+-- =========================
+-- SCHEMAS
+-- =========================
+CREATE SCHEMA IF NOT EXISTS gold;
 CREATE SCHEMA IF NOT EXISTS analytics;
+
+-- =========================
+-- DIMENSION: PRODUCT CATEGORY (PT -> EN)
+-- =========================
 CREATE TABLE IF NOT EXISTS analytics.dim_product_category (
   category_pt TEXT PRIMARY KEY,
   category_en TEXT NOT NULL
@@ -82,3 +91,38 @@ INSERT INTO analytics.dim_product_category (category_pt, category_en) VALUES
 ('utilidades_domesticas', 'Household Utilities')
 ON CONFLICT (category_pt) DO UPDATE
 SET category_en = EXCLUDED.category_en;
+
+-- =========================
+-- NEW FACT TABLE: PBI UNIFIED FACT (DAILY GRAIN)
+-- =========================
+CREATE TABLE IF NOT EXISTS analytics.pbi_fact_daily (
+  date                  date NOT NULL,
+  month_date            date NOT NULL,
+  customer_state        text NOT NULL,
+  payment_type          text NOT NULL,
+  product_category_name text NOT NULL,
+
+  revenue              double precision NOT NULL DEFAULT 0,
+  orders               bigint NOT NULL DEFAULT 0,
+  total_payment_value  double precision NOT NULL DEFAULT 0,
+  avg_price            double precision,
+  avg_freight          double precision,
+
+  batch_id             text NOT NULL,
+  updated_at           timestamptz NOT NULL DEFAULT now(),
+
+  -- Optional stable id (can be filled by pipeline later; not required now)
+  fact_id              text
+);
+
+-- Helpful indexes for slicers & performance
+CREATE INDEX IF NOT EXISTS idx_pbi_fact_daily_month_date ON analytics.pbi_fact_daily (month_date);
+CREATE INDEX IF NOT EXISTS idx_pbi_fact_daily_state ON analytics.pbi_fact_daily (customer_state);
+CREATE INDEX IF NOT EXISTS idx_pbi_fact_daily_payment ON analytics.pbi_fact_daily (payment_type);
+CREATE INDEX IF NOT EXISTS idx_pbi_fact_daily_category ON analytics.pbi_fact_daily (product_category_name);
+CREATE INDEX IF NOT EXISTS idx_pbi_fact_daily_month_state_pay_cat
+  ON analytics.pbi_fact_daily (month_date, customer_state, payment_type, product_category_name);
+
+-- Enforce uniqueness at the grain (this is the real key anyway)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_pbi_fact_daily_grain
+  ON analytics.pbi_fact_daily (date, month_date, customer_state, payment_type, product_category_name, batch_id);

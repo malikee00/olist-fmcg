@@ -30,7 +30,6 @@ SCHEMAS = {
         "int_cols": ["orders"],
     },
 
-    # NOTE: your current gold output only has 4 cols (month,revenue,orders,aov)
     "kpi_monthly": {
         "path": gold_dir / "kpi_monthly",
         "cols": ["month", "revenue", "orders", "aov"],
@@ -49,6 +48,7 @@ SCHEMAS = {
         "int_cols": ["orders"],
         "str_cols": ["customer_state"],
     },
+
     "payment_mix": {
         "path": gold_dir / "payment_mix",
         "cols": ["month", "payment_type", "total_payment_value", "share"],
@@ -57,7 +57,9 @@ SCHEMAS = {
         "float_cols": ["total_payment_value", "share"],
         "str_cols": ["payment_type"],
     },
+
     "top_categories": {
+        # NOTE: in your repo this points to gold_dir / "top_products"
         "path": gold_dir / "top_products",
         "cols": ["month", "product_category_name", "revenue", "orders", "avg_price", "avg_freight"],
         "date_cols": [],
@@ -65,6 +67,33 @@ SCHEMAS = {
         "float_cols": ["revenue", "avg_price", "avg_freight"],
         "int_cols": ["orders"],
         "str_cols": ["product_category_name"],
+    },
+
+    # =========================
+    # NEW: unified fact for Power BI
+    # =========================
+    "pbi_fact_daily": {
+        "path": gold_dir / "pbi_fact_daily",
+        "cols": [
+            "date",
+            "month_date",
+            "customer_state",
+            "payment_type",
+            "product_category_name",
+            "revenue",
+            "orders",
+            "total_payment_value",
+            "avg_price",
+            "avg_freight",
+            "batch_id",
+            "updated_at",
+            "fact_id",
+        ],
+        "date_cols": ["date", "month_date", "updated_at"],
+        "month_cols": [],
+        "float_cols": ["revenue", "total_payment_value", "avg_price", "avg_freight"],
+        "int_cols": ["orders"],
+        "str_cols": ["customer_state", "payment_type", "product_category_name", "batch_id", "fact_id"],
     },
 }
 
@@ -138,7 +167,13 @@ for name, cfg in SCHEMAS.items():
     df = ensure_cols(df, cfg["cols"], name)
 
     for c in cfg.get("date_cols", []):
-        df[c] = to_date_iso(df[c])
+        # Special case: updated_at should remain timestamp-ish for Postgres copy,
+        # but we can safely export it as ISO datetime string.
+        if c == "updated_at":
+            parsed = pd.to_datetime(df[c], errors="coerce")
+            df[c] = parsed.dt.strftime("%Y-%m-%d %H:%M:%S%z").astype("string")
+        else:
+            df[c] = to_date_iso(df[c])
 
     for c in cfg.get("month_cols", []):
         df[c] = to_month_ym(df[c])
@@ -153,6 +188,8 @@ for name, cfg in SCHEMAS.items():
         print(f"[CHECK] {name}.date sample:", df["date"].dropna().head(3).tolist())
     if "month" in df.columns:
         print(f"[CHECK] {name}.month sample:", df["month"].dropna().head(3).tolist())
+    if "month_date" in df.columns:
+        print(f"[CHECK] {name}.month_date sample:", df["month_date"].dropna().head(3).tolist())
 
     print(f"[OK] {name}: rows={len(df)} → {out}")
 

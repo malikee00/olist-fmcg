@@ -1,10 +1,12 @@
 {
-  "last_batch_id": "batch_20260107_1910",
+  "last_batch_id": "batch_20260109_2216",
   "processed_markers": [
-    "_BATCH_batch_20260107_1910.ready"
+    "_BATCH_batch_20260109_1754.ready",
+    "_BATCH_batch_20260109_2216.ready"
   ],
   "processed_batches": [
-    "batch_20260107_1910"
+    "batch_20260109_1754",
+    "batch_20260109_2216"
   ],
-  "updated_at": "2026-01-07T12:18:51"
+  "updated_at": "2026-01-09T15:20:17"
 }

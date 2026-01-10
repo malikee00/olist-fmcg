@@ -19,7 +19,7 @@ The system is built with the following goals in mind:
 
 ---
 
-## 🧩 High-Level Flow Overview
+## High-Level Flow Overview
 
 At a high level, the system follows this flow:
 
@@ -63,7 +63,7 @@ This approach allows the pipeline to behave like near real-time ingestion while 
 
 ---
 
-## 🧠 Orchestration Layer (Airflow)
+## Orchestration Layer (Airflow)
 
 **Apache Airflow** is responsible for end-to-end automation.
 
@@ -140,7 +140,7 @@ Important design decision:
 
 ---
 
-## 📦 Export & Publish Layer
+## Export & Publish Layer
 
 - Gold outputs are exported as CSV files
 - A publish script loads data into **Azure PostgreSQL**
@@ -152,7 +152,7 @@ Azure PostgreSQL acts as the **final serving layer**, not a transformation engin
 
 ---
 
-## 🧾 BI Contract (Single Source of Truth)
+## BI Contract (Single Source of Truth)
 
 The BI contract is defined as: analytics.vw_pbi_unified
 

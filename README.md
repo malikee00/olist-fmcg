@@ -126,15 +126,15 @@ High-level steps to run the project:
 
 ## 🗂️ Project Structure (High-Level)
 
+```text
 .
-├── airflow/ # DAGs and orchestration logic
-├── spark_jobs/ # Bronze, Silver, Gold processing
-├── data/ # Raw, checkpoints, and exports
-├── sql/ # Schema and SQL views
-├── docs/ # Project documentation
-├── docker/ # Airflow container setup
-└── README.md
-
+├── airflow/        # Airflow DAGs and orchestration logic
+├── spark_jobs/     # Spark jobs for Bronze, Silver, and Gold layers
+├── data/           # Raw data, checkpoints, and exported outputs
+├── sql/            # Database schema and SQL views (BI contract)
+├── docs/           # Project documentation
+├── docker/         # Docker setup for Airflow
+└── README.md       # Project overview
 
 ---
 

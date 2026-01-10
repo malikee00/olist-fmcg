@@ -126,7 +126,7 @@ High-level steps to run the project:
 
 ## 🗂️ Project Structure (High-Level)
 
-.
+```
 ├── airflow/        # Airflow DAGs and orchestration logic
 ├── spark_jobs/     # Spark jobs for Bronze, Silver, and Gold layers
 ├── data/           # Raw data, checkpoints, and exported outputs
@@ -134,7 +134,7 @@ High-level steps to run the project:
 ├── docs/           # Project documentation
 ├── docker/         # Docker setup for Airflow
 └── README.md       # Project overview
-
+```
 ---
 
 ## 📚 Documentation Index

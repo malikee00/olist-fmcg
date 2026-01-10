@@ -126,7 +126,6 @@ High-level steps to run the project:
 
 ## 🗂️ Project Structure (High-Level)
 
-```text
 .
 ├── airflow/        # Airflow DAGs and orchestration logic
 ├── spark_jobs/     # Spark jobs for Bronze, Silver, and Gold layers

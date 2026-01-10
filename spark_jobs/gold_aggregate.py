@@ -5,7 +5,7 @@ import argparse
 import json
 import os
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 import yaml
 from pyspark.sql import SparkSession, DataFrame
@@ -141,10 +141,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
 
     orders_batch = (
         orders_batch
-        .select(
-            "order_id",
-            "order_purchase_timestamp",
-        )
+        .select("order_id", "order_purchase_timestamp")
         .withColumn("date", F.to_date(F.col("order_purchase_timestamp")))
         .withColumn("month", F.date_format(F.col("order_purchase_timestamp"), "yyyy-MM"))
     ).persist(StorageLevel.MEMORY_AND_DISK)
@@ -174,7 +171,6 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         "payment_type_main",
     ] if c in orders_all.columns]
 
-    # Normalize
     orders_all = (
         orders_all
         .select(*keep_orders_cols)
@@ -335,8 +331,26 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
                 F.expr("CASE WHEN month_total = 0 THEN 0 ELSE total_payment_value / month_total END")
             ).drop("month_total")
 
-        # Add batch_id & updated_at ONLY for pbi_fact_daily (for downstream publish)
+        # Special-case: pbi_fact_daily (add required cols for export/publish)
         if key == "pbi_fact_daily":
+            # month_date = first day of month for the 'date'
+            agg_df = agg_df.withColumn("month_date", F.date_trunc("month", F.col("date")).cast("date"))
+
+            # stable fact_id (doesn't depend on revenue etc., only grain keys)
+            agg_df = agg_df.withColumn(
+                "fact_id",
+                F.sha2(
+                    F.concat_ws(
+                        "||",
+                        F.col("date").cast("string"),
+                        F.col("customer_state").cast("string"),
+                        F.col("payment_type").cast("string"),
+                        F.col("product_category_name").cast("string"),
+                    ),
+                    256,
+                ),
+            )
+
             agg_df = (
                 agg_df
                 .withColumn(batch_key, F.lit(batch_id))
@@ -382,8 +396,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
 
     print(
         f"[OK] Gold aggregate completed for batch_id={batch_id}. "
-        f"affected_dates={len(affected_dates)}, affected_months={len(affected_months)}, "
-        f"tables_written={len([k for k,v in tables_cfg.items() if not (isinstance(v,dict) and v.get('enabled') is False)])}"
+        f"affected_dates={len(affected_dates)}, affected_months={len(affected_months)}"
     )
     spark.stop()
 

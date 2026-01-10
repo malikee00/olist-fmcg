@@ -1,2 +1,0 @@
-﻿# KPI definition
-

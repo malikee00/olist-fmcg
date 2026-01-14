@@ -5,6 +5,8 @@ An end-to-end analytics project that simulates **near real-time data processing*
 
 This project demonstrates how production-style data pipelines can be built using **Airflow, Spark, Azure PostgreSQL, and Power BI** — without relying on real-time streaming infrastructure.
 
+An optional analytics-driven prediction module is included to demonstrate how forecasting can be layered on top of a stable analytics platform.
+
 ---
 
 ## 🚀 Overview
@@ -56,6 +58,7 @@ Key characteristics:
 | Orchestration | Apache Airflow |
 | Processing | Apache Spark (PySpark) |
 | Storage (Analytics) | Azure PostgreSQL |
+| Analytics Prediction | Databricks |
 | BI & Visualization | Power BI |
 | Scripting | Bash / Python |
 | Environment | Docker, WSL |
@@ -92,6 +95,19 @@ Why this matters:
 This view acts as the **API layer** between the data platform and Power BI.
 
 ---
+## 🔮 Analytics Extension — Revenue Prediction (Optional)
+
+As an extension to the analytics platform, a lightweight prediction module forecasts **next-day revenue** using Gold-layer KPI data.
+
+Key points:
+- Uses analytics-ready data (no raw ingestion)
+- Trained in Databricks with Spark ML
+- Outputs predictions back to PostgreSQL
+- Consumed directly by Power BI for monitoring
+
+This module demonstrates how predictive insights can be integrated **without changing the core data pipeline**.
+
+---
 
 ## 📊 Dashboard Output
 
@@ -105,6 +121,9 @@ The Power BI dashboard contains three main pages:
 
 3. **Detail & Evidence**  
    Granular tables for validation and analysis
+
+4. **Forecast Monitoring**
+   Actual vs Forecast revenue and error trends
 
 Dashboards automatically reflect new data after each successful pipeline run.
 
@@ -141,13 +160,18 @@ High-level steps to run the project:
 
 Detailed documentation is available in the `docs/` folder:
 
-- `00_one_pager.md` — Business context & value
-- `03_architecture.md` — System architecture (detailed)
-- `07_orchestration.md` — Airflow workflow & control flow
-- `05_dashboard_spec.md` — Power BI dashboard design
-- `06_demo_steps.md` — Demo & walkthrough steps
-- `06_sql_views.md` — BI contract & SQL views
-- `08_runbook.md` — How to run & troubleshoot
+- `00_one_pager.md` — Business context, objectives, and value
+- `01_data_dictionary.md` — Dataset definitions and key fields
+- `02_architecture.md` — End-to-end system architecture
+- `03_bronze.md` — Raw ingestion and Bronze layer processing
+- `04_silver.md` — Data cleaning and Silver layer transformations
+- `05_gold.md` — Business-ready Gold layer models
+- `06_dashboard_spec.md` — Power BI dashboard design and KPIs
+- `06_demo_steps.md` — Demo and walkthrough steps
+- `07_sql_views.md` — BI contracts and SQL views
+- `08_orchestration.md` — Airflow DAGs and orchestration logic
+- `09_runbook.md` — How to run, operate, and troubleshoot
+- `10_prediction_databricks.md` — Analytics-driven revenue prediction 
 
 ---
 

@@ -26,12 +26,12 @@ The focus of this project is **architecture, orchestration, and BI reliability**
 
 ## 🏗️ System Architecture
 
-The system follows a layered analytics architecture:
+The system is built on a layered analytics architecture:
 
-- Raw → Bronze → Silver → Gold
-- Export → Publish to Azure PostgreSQL
-- SQL Views as BI contract
-- Power BI as the final consumer
+- Raw → Bronze → Silver → Gold for data processing
+- Curated Gold datasets published to Azure PostgreSQL
+- SQL views acting as the contract between data and BI
+- Power BI consuming analytics-ready data
 
 ![System Architecture](docs/images/system_architecture_simple.png)
 

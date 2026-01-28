@@ -70,12 +70,10 @@ def snake_case(name: str) -> str:
     s = re.sub(r"__+", "_", s)
     return s.lower().strip("_")
 
-
 def normalize_columns(df: DataFrame) -> DataFrame:
     for c in df.columns:
         df = df.withColumnRenamed(c, snake_case(c))
     return df
-
 
 def cast_columns(df: DataFrame, ts_cols: List[str], num_cols: List[str]) -> DataFrame:
     for c in ts_cols:

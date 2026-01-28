@@ -95,7 +95,7 @@ Why this matters:
 This view acts as the **API layer** between the data platform and Power BI.
 
 ---
-## 🔮 Analytics Extension — Revenue Prediction (Optional)
+## 🔮 Analytics Extension — Revenue Prediction
 
 As an extension to the analytics platform, a lightweight prediction module forecasts **next-day revenue** using Gold-layer KPI data.
 

@@ -75,7 +75,6 @@ This project demonstrates how to:
 To keep the system focused and realistic:
 
 - Real-time streaming (Kafka, Spark Streaming)
-- Machine Learning or forecasting
 - Complex CDC or event-driven ingestion
 
 These can be added as future enhancements.

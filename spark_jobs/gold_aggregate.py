@@ -40,7 +40,6 @@ def safe_cols(df: DataFrame, cols: List[str]) -> DataFrame:
 
 
 def apply_windows_bind_mount_safe_conf(spark: SparkSession) -> None:
-    # Reduce Windows/WSL quirks for local file outputs
     hconf = spark.sparkContext._jsc.hadoopConfiguration()
     hconf.set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
     hconf.set("parquet.enable.summary-metadata", "false")
@@ -156,7 +155,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
         return
 
     # ----------------------------
-    # Orders all (delivered only if required)
+    # Orders all 
     # ----------------------------
     orders_all = orders
     if delivered_only and "order_status" in orders_all.columns:
@@ -198,7 +197,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     orders_monthly = orders_all.filter(F.col("month").isin(affected_months)).persist(StorageLevel.MEMORY_AND_DISK)
 
     # ----------------------------
-    # Items (semi-join affected orders)
+    # Items 
     # ----------------------------
     wanted_items = [c for c in ["order_id", "order_item_id", "product_id", "price", "freight_value", batch_key] if c in items.columns]
     items_use = (
@@ -214,7 +213,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     items_monthly = items_use.join(affected_order_ids_monthly, on="order_id", how="inner").persist(StorageLevel.MEMORY_AND_DISK)
 
     # ----------------------------
-    # Products dim (broadcast)
+    # Products dim 
     # ----------------------------
     prod_use = products.select("product_id", "product_category_name")
     prod_use = F.broadcast(prod_use)
@@ -256,8 +255,7 @@ def run(settings_path: str, kpis_path: str, batch_id: str) -> None:
     orders_monthly_view = orders_monthly.select("month", "payment_type", "payment_total_value", "order_id")
 
     # ----------------------------
-    # NEW: pbi_base_daily (avoid double-count payment_total_value)
-    # Allocate order payment_total_value equally to each item in the order.
+    # PBI
     # ----------------------------
     item_cnt_daily = items_daily.groupBy("order_id").agg(F.count(F.lit(1)).alias("item_cnt"))
     pbi_base_daily = (

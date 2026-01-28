@@ -77,9 +77,6 @@ tables:
       - name: total_payment_value
         op: sum
         col: payment_total_value
-    # NOTE:
-    # - share will be computed in gold_aggregate.py special-case for payment_mix
-    # - do NOT define derived_window here to avoid confusion
 
   kpi_by_state:
     enabled: true
@@ -97,7 +94,7 @@ tables:
         col: order_id
 
   # ============================================================
-  # NEW: Power BI Unified Fact (BASIC)
+  # PBI
   # ============================================================
   pbi_fact_daily:
     path: "pbi_fact_daily"
